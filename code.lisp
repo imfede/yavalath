@@ -48,13 +48,12 @@
 
 ;;; static eval patterns:
 (defvar template '())
-(defvar patterns '())
-(setf template (list (cons '(1 1 0 1) +100)
-					 (cons '(1 0 1 1) +100)
-					 (cons '(1 0 0 1) +50)
-					 (cons '(0 1 1 0) -10)
-					 (cons '(1 1 1 1) +1000)
-					 (cons '(0 1 1 1 0) -1000)))
+(setf template (list (cons '(0 1 1 0 1) +100)
+					 (cons '(1 0 1 1 0) +120) ;; +100
+					 (cons '(0 1 0 0 1) +50)
+					 (cons '(1 0 0 1 0) +50)
+					 (cons '(0 1 1 0) -20)
+					 (cons '(0 1 0 1 0) -25)))
 
 (defun print-board ()
   (let ((indent 0))
@@ -164,12 +163,12 @@
 		  (match-pattern-direction index 11 pattern))))
 
 (defun static-evaluation-pattern (pattern points)
-  (reduce #'+
-		  (loop
-			 for index from 0 to 117
-			 for matches = (match-pattern index pattern)
-			 when (not (zerop matches))
-			 collect (* matches points))))
+  (loop
+	 for index from 0 to 117
+	 for matches = (match-pattern index pattern)
+	 when (not (zerop matches))
+	 sum (* matches points) into result
+	 finally (return result)))
 
 (defun build-patterns (template)
   (loop
@@ -182,10 +181,14 @@
 			  (if (= player 1) (- (cdr cell)) (cdr cell)))))
 
 (defun static-evaluation (patterns)
-  (reduce #'+
-		  (loop
-			 for cell in patterns
-			 collect (static-evaluation-pattern (car cell) (cdr cell)))))
+  (let ((result (test-winner)))
+	(cond
+	  ((equal result player) -1e9)
+	  ((equal result (invert-player player)) 1e9)
+	  (t (loop
+			for cell in patterns
+			sum (static-evaluation-pattern (car cell) (cdr cell)) into sum
+			finally (return sum))))))
 
 (defun test-in-a-row (n)
   (loop
@@ -251,8 +254,7 @@
 (defun ab-make-move (move)
   (make-move move player)
   (setf moves (+ moves 1))
-  (setf player (invert-player player))
-  (setf patterns (build-patterns template)))
+  (setf player (invert-player player)))
 
 (defun ab-unmake-move (move)
   (make-move move 0 't)
@@ -270,12 +272,11 @@
 (defun tree-set-value (node value)
   (setf (getf node :value) value))
 
-
 (defun alpha-beta (node search-height depth achievable hope)
   (let ((possible-moves (generate-moves)))
 	(if (or (= depth search-height)
 			(equal possible-moves '()))
-		(static-evaluation patterns)
+		(static-evaluation (build-patterns template))
 		(loop
 		   for move in possible-moves
 		   with temp and new-node
@@ -312,6 +313,7 @@
 	 do (progn
 		  (print-board)
 		  (setf move (alpha-beta-search depth))
+		  (if (null move) (return nil))
 		  (make-move move player)
 		  (setf last-move move)
 		  (setf moves (+ 1 moves))
@@ -325,7 +327,7 @@
   (setf swapped 0)
   (setf last-move nil)
   (setf last-move-string "")
+  (setf move-tree nil)
   (loop
 	 for index from 0 to 120
 	 do (setf (nth index piece) 0)))
-
