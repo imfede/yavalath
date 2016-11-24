@@ -261,50 +261,34 @@
   (setf moves (- moves 1))
   (setf player (invert-player player)))
 
-(defun tree-create-node (move)
-  (list :move move
-		:value nil
-		:sub '()))
-
-(defun tree-append-node (node child)
-  (setf (getf node :sub) (append `(,child) (getf node :sub))))
-
-(defun tree-set-value (node value)
-  (setf (getf node :value) value))
-
-(defun alpha-beta (node search-height depth achievable hope)
+(defun alpha-beta (search-height depth achievable hope &optional previous-move)
   (let ((possible-moves (generate-moves)))
 	(if (or (= depth search-height)
 			(equal possible-moves '()))
-		(static-evaluation (build-patterns template))
+		(cons previous-move (static-evaluation (build-patterns template)))
 		(loop
 		   for move in possible-moves
-		   with temp and new-node
+		   with temp
+		   with best-move = nil
 		   do (progn
 				(ab-make-move move)
-				(setf new-node (tree-create-node move))
-				(setf temp (- (alpha-beta new-node
-										  search-height
-										  (+ depth 1)
-										  (- hope)
-										  (- achievable))))
-				(tree-set-value new-node temp)
-				(tree-append-node node new-node)
+				(setf temp (- (cdr (alpha-beta search-height
+											   (+ depth 1)
+											   (- hope)
+											   (- achievable)
+											   move))))
 				(ab-unmake-move move)
-				(if (>= temp hope) (return temp))
-				(setf achievable (max achievable temp)))
-		   finally (return achievable)))))
+				(if (>= temp hope) (return (cons move temp)))
+				(if (> temp achievable)
+					(progn
+					  (setf achievable temp)
+					  (setf best-move (cons move temp)))))
+		   finally (if (null best-move)
+					   (return (cons -1 achievable))
+					   (return best-move))))))
 
 (defun alpha-beta-search (search-height)
-  (setf move-tree (tree-create-node last-move))
-  (alpha-beta move-tree search-height 1 -1e9 1e9)
-  ;; i have to find the next move
-  (loop
-	 for child in (getf move-tree :sub)
-	 with min-child = (list :value 1e9)
-	 when (< (getf child :value) (getf min-child :value))
-	 do (setf min-child child)
-	 finally (return (getf min-child :move))))
+  (car (alpha-beta search-height 1 -1e9 1e9)))
 
 (defun auto-play (depth)
   (loop
