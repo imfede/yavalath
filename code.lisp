@@ -43,12 +43,12 @@
     30 29 28 27 37 47 57 68 79 90 91 92
     93 94 84 74 64 53 42 31 20 19 18 17
     16 26 36 46 56 67 78 89 100 101 102
-    103 104))
+    103 104 -1)) ;; -1 is for swap
 
 (defvar char-indent " ")
 
 (defvar player 1)  ;; 1 or 2
-(defvar swapped 0) ;; 0 or 1
+(defvar swapped nil) ;; 0 or 1
 (defvar moves 0)   ;; number of moves
 (defvar last-move nil)
 (defvar history-eur nil)
@@ -116,7 +116,7 @@
         ((> row 4) 0)))
 
 (defun move-to-index (move)
-  "translates moves to index (ex B2 -> 27)"
+  "translates moves to index (ex B2 -> 27)" 
   (if (not (parse-integer (subseq move 1 2) :junk-allowed t))
       nil
       (let* ((row (+ (- (char-int (char move 0)) (char-int #\A)) 1))
@@ -130,6 +130,7 @@
 (defun index-to-string (index)
   (cond
     ((null index) "N/A")
+    ((= index -1) "X")
     ((< index  21) (concatenate 'string "A" (write-to-string (- index 15))))
     ((< index  32) (concatenate 'string "B" (write-to-string (- index 25))))
     ((< index  43) (concatenate 'string "C" (write-to-string (- index 35))))
@@ -143,18 +144,21 @@
 
 (defun make-move (index value &optional (bypass-check nil))
   (if (and (not (null index))
-           (or bypass-check (zerop (nth index piece))))
+           (or bypass-check (= index -1) (zerop (nth index piece))))
       (progn
-        (setf last-move index)
-        (setf (nth index piece) value))))
+        (if (and (= index -1)
+                 (or bypass-check (= moves 1)))
+            (swap-players)
+            (progn
+              (setf last-move index)
+              (setf (nth index piece) value))))))
 
 (defun swap-players ()
   (loop
      for i from 0 to 120
      do (if (not (zerop (nth i piece)))
-            (setf (nth i piece) (invert-player (nth i piece))))
-     finally (return t))
-  (setf swapped 1))
+            (setf (nth i piece) (invert-player (nth i piece)))))
+  (setf swapped (not swapped)))
 
 (defun board-input (input value)
   (cond ((and (string= input "X")
@@ -284,27 +288,30 @@
 
 (defun generate-moves (depth)
   (if (not (test-winner))
-      (if (or history-eur killer-eur)
-          (loop
-             for cell in cells-spiral-order
-             with best-move = 0
-             with best-value = 0
-             with hash-table = (cond (history-eur history-eur)
-                                     (killer-eur (gethash depth killer-eur)))
-             when (and (gethash cell hash-table)
-                       (> (gethash cell hash-table) best-value))
-             do (progn
-                  (setf best-move (length moves))
-                  (setf best-value (gethash cell hash-table)))
-             when (zerop (nth cell piece))
-             collect cell into moves
-             finally (progn
-                       (rotatef (nth 0 moves) (nth best-move moves))
-                       (return moves)))
-          (loop
-             for cell in cells-spiral-order
-             when (zerop (nth cell piece))
-             collect cell))))
+      (let ((cells (if (= moves 1)
+                       cells-spiral-order
+                       (remove -1 cells-spiral-order))))
+        (if (or history-eur killer-eur)
+            (loop
+               for cell in cells
+               with best-move = 0
+               with best-value = 0
+               with hash-table = (cond (history-eur history-eur)
+                                       (killer-eur (gethash depth killer-eur)))
+               when (and (gethash cell hash-table)
+                         (> (gethash cell hash-table) best-value))
+               do (progn
+                    (setf best-move (length moves))
+                    (setf best-value (gethash cell hash-table)))
+               when (or (= cell -1) (zerop (nth cell piece)))
+               collect cell into moves
+               finally (progn
+                         (rotatef (nth 0 moves) (nth best-move moves))
+                         (return moves)))
+            (loop
+               for cell in cells
+               when (or (= cell -1) (zerop (nth cell piece)))
+               collect cell)))))
 
 (defun ab-make-move (move)
   (make-move move player)
@@ -383,7 +390,7 @@
           (format t "Eval: ~A~%" (static-evaluation (build-patterns template)))
           (setf move (ai-get-next-move depth))
           (format t "Ai says: ~A~%" move)
-          (if (null move) (return nil)) ;; should never happen
+          (if (or killer-eur history-eur) (print-hash depth)) 
           (setf move (getf move :move))
           (make-move move player)
           (setf last-move move)
