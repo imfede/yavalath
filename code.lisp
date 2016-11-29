@@ -37,19 +37,30 @@
     0 0 0 0 0 0 0 0 0 0 0
     0 0 0 0 0 0 0 0 0 0 0))
 
+(defvar cells-spiral-order
+  '(60 61 50 49 59 70 71 72 62 51 40 39
+    38 48 58 69 80 81 82 83 73 63 52 41
+    30 29 28 27 37 47 57 68 79 90 91 92
+    93 94 84 74 64 53 42 31 20 19 18 17
+    16 26 36 46 56 67 78 89 100 101 102
+    103 104))
+
 (defvar char-indent " ")
 
 (defvar player 1)  ;; 1 or 2
 (defvar swapped 0) ;; 0 or 1
 (defvar moves 0)   ;; number of moves
 (defvar last-move nil)
-(defvar move-tree nil)
+(defvar history-eur nil)
+(defvar killer-eur nil)
 
 ;;; static eval patterns:
 (defvar template '())
 (setf template (list
-                (cons '(1 1 0 1) +100)
-                (cons '(1 0 1 1) +100)
+                (cons '(1 1 0 1) +1000)
+                (cons '(1 0 1 1) +1000)
+                (cons '(1 0 1 1 0 1) +1000)
+                (cons '(1 1 0 1 0 1 1) +1000)
                 (cons '(1 0 0 1) +50)
                 (cons '(0 1 1 0) -20)
                 (cons '(0 1 0 1 0) -25)))
@@ -254,13 +265,46 @@
   (print-board)
   (format t "The winner is: ~A~%" (test-winner)))
 
-(defun generate-moves ()
+(defun fill-hashtable (hashtable)
+  (loop
+     for move in cells-spiral-order
+     do (setf (gethash move hashtable) 0)
+     finally (return hashtable)))
+
+(defun setup-history ()
+  (setf killer-eur nil)
+  (setf history-eur (fill-hashtable (make-hash-table))))
+
+(defun setup-killer (depth)
+  (setf history-eur nil)
+  (setf killer-eur (make-hash-table))
+  (loop
+     for i from 0 to depth
+     do (setf (gethash i killer-eur) (fill-hashtable (make-hash-table)))))
+
+(defun generate-moves (depth)
   (if (not (test-winner))
-      (loop
-         for i from 0 to 120
-         when (and (not (zerop (nth i playable)))
-                   (zerop (nth i piece)))
-         collect i)))
+      (if (or history-eur killer-eur)
+          (loop
+             for cell in cells-spiral-order
+             with best-move = 0
+             with best-value = 0
+             with hash-table = (cond (history-eur history-eur)
+                                     (killer-eur (gethash depth killer-eur)))
+             when (and (gethash cell hash-table)
+                       (> (gethash cell hash-table) best-value))
+             do (progn
+                  (setf best-move (length moves))
+                  (setf best-value (gethash cell hash-table)))
+             when (zerop (nth cell piece))
+             collect cell into moves
+             finally (progn
+                       (rotatef (nth 0 moves) (nth best-move moves))
+                       (return moves)))
+          (loop
+             for cell in cells-spiral-order
+             when (zerop (nth cell piece))
+             collect cell))))
 
 (defun ab-make-move (move)
   (make-move move player)
@@ -279,7 +323,7 @@
         :moves (getf move-analysis :moves)))
 
 (defun alpha-beta (search-height depth achievable hope &optional previous-move)
-  (let ((possible-moves (generate-moves)))
+  (let ((possible-moves (generate-moves depth)))
     (if (or (= depth search-height)
             (equal possible-moves '()))
         (list :move previous-move
@@ -302,7 +346,14 @@
                 (setf temp (getf move-analysis :value))
                 (ab-unmake-move move)
                 (if (null best-move) (setf best-move move-analysis))
-                (if (>= temp hope) (return move-analysis))
+                (if (>= temp hope) (progn
+                                     (if (or killer-eur history-eur)
+                                         (let ((hash-table (if history-eur
+                                                               history-eur
+                                                               (gethash depth killer-eur))))
+                                           (setf (gethash move hash-table)
+                                                 (+ (gethash move hash-table) 1))))
+                                     (return move-analysis)))
                 (if (> temp achievable)
                     (progn
                       (setf achievable temp)
@@ -318,6 +369,9 @@
   move-analysis)
 
 (defun ai-get-next-move (search-height)
+  (cond
+    (history-eur (setup-history))
+    (killer-eur (setup-killer search-height)))
   (translate-moves (alpha-beta search-height 0 -1e9 1e9)))
 
 (defun auto-play (depth)
@@ -338,13 +392,48 @@
   (print-board)
   (format t "The winner is: ~A~%" (test-winner)))
 
+(defun play-against (depth)
+  (loop
+     while (not (test-winner))
+     with move
+     do (progn
+          (play-one-ply)
+          (print-board)
+          (setf move (ai-get-next-move depth))
+          (format t "Ai says: ~A~%" move)          
+          (make-move (getf move :move) player)
+          (setf last-move (getf move :move))
+          (setf moves (+ 1 moves))
+          (setf player (invert-player player))))
+  (print-board))
+
 (defun reset-game ()
   (setf moves 0)
   (setf player 1)
   (setf swapped 0)
   (setf last-move nil)
-  (setf move-tree nil)
+  (setf history-eur nil)
+  (setf killer-eur nil)
   (loop
      for index from 0 to 120
      do (setf (nth index piece) 0)))
 
+(defun print-hash (&optional (search-height 3))
+  (cond
+    (history-eur
+     (loop
+        for index being the hash-keys in history-eur
+        when (> (gethash index history-eur) 0)
+        do (format t "~A: ~A~%" (index-to-string index) (gethash index history-eur))))
+    (killer-eur
+     (loop 
+        for depth from 0 to search-height
+        do (progn
+             (loop
+                for cell in cells-spiral-order
+                with hash-table = (gethash depth killer-eur)
+                when (> (gethash cell hash-table) 0)
+                do (format t "~A: ~A~%"
+                           (index-to-string cell)
+                           (gethash cell hash-table)))
+             (format t "---------~%"))))))
