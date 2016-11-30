@@ -1,41 +1,49 @@
 (defvar playable
-  '(0 0 0 0 0 0 0 0 0 0 0
-    0 0 0 0 0 1 1 1 1 1 0
-    0 0 0 0 1 1 1 1 1 1 0
-    0 0 0 1 1 1 1 1 1 1 0
-    0 0 1 1 1 1 1 1 1 1 0
-    0 1 1 1 1 1 1 1 1 1 0
-    0 1 1 1 1 1 1 1 1 0 0
-    0 1 1 1 1 1 1 1 0 0 0
-    0 1 1 1 1 1 1 0 0 0 0
-    0 1 1 1 1 1 0 0 0 0 0
-    0 0 0 0 0 0 0 0 0 0 0))
+  (vector 0 0 0 0 0 0 0 0 0 0 0
+          0 0 0 0 0 1 1 1 1 1 0
+          0 0 0 0 1 1 1 1 1 1 0
+          0 0 0 1 1 1 1 1 1 1 0
+          0 0 1 1 1 1 1 1 1 1 0
+          0 1 1 1 1 1 1 1 1 1 0
+          0 1 1 1 1 1 1 1 1 0 0
+          0 1 1 1 1 1 1 1 0 0 0
+          0 1 1 1 1 1 1 0 0 0 0
+          0 1 1 1 1 1 0 0 0 0 0
+          0 0 0 0 0 0 0 0 0 0 0))
 
 (defvar border
-  '(0 0 0 0 0 1 3 3 3 3 2
-    0 0 0 0 5 7 7 7 7 7 2
-    0 0 0 5 7 7 7 7 7 7 2
-    0 0 5 7 7 7 7 7 7 7 2
-    0 5 7 7 7 7 7 7 7 7 2
-    4 7 7 7 7 7 7 7 7 7 0
-    4 7 7 7 7 7 7 7 7 0 0
-    4 7 7 7 7 7 7 7 0 0 0
-    4 7 7 7 7 7 7 0 0 0 0
-    4 7 7 7 7 7 0 0 0 0 0
-    0 0 0 0 0 0 0 0 0 0 0))
+  (vector 0 0 0 0 0 1 3 3 3 3 2
+          0 0 0 0 5 7 7 7 7 7 2
+          0 0 0 5 7 7 7 7 7 7 2
+          0 0 5 7 7 7 7 7 7 7 2
+          0 5 7 7 7 7 7 7 7 7 2
+          4 7 7 7 7 7 7 7 7 7 0
+          4 7 7 7 7 7 7 7 7 0 0
+          4 7 7 7 7 7 7 7 0 0 0
+          4 7 7 7 7 7 7 0 0 0 0
+          4 7 7 7 7 7 0 0 0 0 0
+          0 0 0 0 0 0 0 0 0 0 0))
 
 (defvar piece
-  '(0 0 0 0 0 0 0 0 0 0 0
-    0 0 0 0 0 0 0 0 0 0 0
-    0 0 0 0 0 0 0 0 0 0 0
-    0 0 0 0 0 0 0 0 0 0 0
-    0 0 0 0 0 0 0 0 0 0 0
-    0 0 0 0 0 0 0 0 0 0 0
-    0 0 0 0 0 0 0 0 0 0 0
-    0 0 0 0 0 0 0 0 0 0 0
-    0 0 0 0 0 0 0 0 0 0 0
-    0 0 0 0 0 0 0 0 0 0 0
-    0 0 0 0 0 0 0 0 0 0 0))
+  (vector 0 0 0 0 0 0 0 0 0 0 0
+          0 0 0 0 0 0 0 0 0 0 0
+          0 0 0 0 0 0 0 0 0 0 0
+          0 0 0 0 0 0 0 0 0 0 0
+          0 0 0 0 0 0 0 0 0 0 0
+          0 0 0 0 0 0 0 0 0 0 0
+          0 0 0 0 0 0 0 0 0 0 0
+          0 0 0 0 0 0 0 0 0 0 0
+          0 0 0 0 0 0 0 0 0 0 0
+          0 0 0 0 0 0 0 0 0 0 0
+          0 0 0 0 0 0 0 0 0 0 0))
+
+(defvar cells-linear-order
+  (vector 16 17 18 19 20 26 27 28 29 30 31 36
+          37 38 39 40 41 42 46 47 48 49 50 51
+          52 53 56 57 58 59 60 61 62 63 64 67
+          68 69 70 71 72 73 74 78 79 80 81 82
+          83 84 89 90 91 92 93 94 100 101 102
+          103 104))
 
 (defvar cells-spiral-order
   '(60 61 50 49 59 70 71 72 62 51 40 39
@@ -53,6 +61,7 @@
 (defvar last-move nil)
 (defvar history-eur nil)
 (defvar killer-eur nil)
+(defvar eval-counter 0)
 
 ;;; static eval patterns:
 (defvar template '())
@@ -75,9 +84,9 @@
                   (row-playable (subseq playable (* i 11) (* (+ i 1) 11)))
                   (row-piece    (subseq piece    (* i 11) (* (+ i 1) 11))))
               (loop
-                 for cell-border   in row-border
-                 for cell-playable in row-playable
-                 for cell-piece    in row-piece
+                 for cell-border   across row-border
+                 for cell-playable across row-playable
+                 for cell-piece    across row-piece
                  do (progn
                       (format t char-indent)
                       (cond ((= cell-piece 0) (format t char-indent))
@@ -90,9 +99,9 @@
               (format t "~%")
               (format t (make-string (* 2 indent) :initial-element (char char-indent 0)))
               (loop
-                 for cell-border   in row-border
-                 for cell-playable in row-playable
-                 for cell-piece    in row-piece
+                 for cell-border   across row-border
+                 for cell-playable across row-playable
+                 for cell-piece    across row-piece
                  do (progn
                       (if (member cell-border '(2 3 7))
                           (format t "\\")
@@ -115,17 +124,18 @@
         ((= row 4) 1)
         ((> row 4) 0)))
 
-(defun move-to-index (move)
-  "translates moves to index (ex B2 -> 27)" 
-  (if (not (parse-integer (subseq move 1 2) :junk-allowed t))
-      nil
-      (let* ((row (+ (- (char-int (char move 0)) (char-int #\A)) 1))
-             (col (+ (parse-integer (subseq move 1 2)) (adjust-row row))))
-        (let ((index (+ (* row 11) col)))
-          (if (and (not (null (nth index playable)))
-                   (= (nth index playable) 1))
-              index
-              nil)))))
+(defun string-to-index (move)
+  "translates moves to index (ex B2 -> 27)"
+  (if (string= move "X")
+      -1
+      (if (parse-integer (subseq move 1 2) :junk-allowed t)
+          (let* ((row (1+ (- (char-int (char move 0)) (char-int #\A))))
+                 (col (+ (parse-integer (subseq move 1 2)) (adjust-row row)))
+                 (index (+ (* row 11) col)))
+            (if (and (>= index 0)
+                     (< index 121)
+                     (= (elt playable index) 1))
+                index)))))
 
 (defun index-to-string (index)
   (cond
@@ -144,34 +154,32 @@
 
 (defun make-move (index value &optional (bypass-check nil))
   (if (and (not (null index))
-           (or bypass-check (= index -1) (zerop (nth index piece))))
-      (progn
-        (if (and (= index -1)
-                 (or bypass-check (= moves 1)))
-            (swap-players)
-            (progn
-              (setf last-move index)
-              (setf (nth index piece) value))))))
+           (or bypass-check (= index -1) (zerop (elt piece index))))
+      (if (and (= index -1)
+               (or bypass-check (= moves 1)))
+          (swap-players)
+          (progn
+            (setf last-move index)
+            (setf (elt piece index) value)))))
 
 (defun swap-players ()
   (loop
      for i from 0 to 120
-     do (if (not (zerop (nth i piece)))
-            (setf (nth i piece) (invert-player (nth i piece)))))
-  (setf swapped (not swapped)))
+     do (if (not (zerop (elt piece i)))
+            (setf (elt piece i) (invert-player (elt piece i)))))
+  (setf swapped (not swapped))
+  (setf last-move -1))
 
 (defun board-input (input value)
-  (cond ((and (string= input "X")
-              (= moves 1))
-         (swap-players))
-        ((= (length input) 2)
-         (progn
-           (setf last-move (move-to-index input))
-           (make-move (move-to-index input) value)))))
+  (if (= (length input) 2)
+      (progn
+        (setf last-move (string-to-index input))
+        (make-move (string-to-index input) value))))
 
 (defun is-playable (index)
-  (and (not (null (nth index playable)))
-       (= (nth index playable) 1)))
+  (and (> index 0)
+       (< index 121)
+       (= (elt playable index) 1)))
 
 (defun match-pattern-direction (index offset pattern)
   (if (every #'identity
@@ -181,7 +189,7 @@
       (equal pattern
              (loop
                 for i from 0 to (- (length pattern) 1)
-                collect (nth (+ (* offset i) index) piece)))))
+                collect (elt piece (+ (* offset i) index))))))
   
 (defun match-pattern (index pattern)
   (count 't
@@ -192,7 +200,7 @@
 
 (defun static-evaluation-pattern (pattern points)
   (loop
-     for index from 0 to 120
+     for index across cells-linear-order
      for matches = (match-pattern index pattern)
      when (not (zerop matches))
      sum (* matches points)))
@@ -208,6 +216,7 @@
               (if (= player 1) (- (cdr cell)) (cdr cell)))))
 
 (defun static-evaluation (patterns)
+  (incf eval-counter)
   (let ((result (test-winner)))
     (cond
       ((equal result player) 1e6)
@@ -219,7 +228,7 @@
 (defun test-in-a-row (n)
   (loop
      for i from 0 to 120
-     for current = (nth i piece)       
+     for current = (elt piece i)       
      when (and (not (zerop current))
                (not (zerop (match-pattern
                             i
@@ -229,8 +238,8 @@
 (defun test-draw ()
   (loop
      for i from 0 to 120
-     when (and (= (nth i playable) 1)
-               (= (nth i piece) 0))
+     when (and (= (elt playable i) 1)
+               (= (elt piece i) 0))
      return nil
      finally (return t)))
 
@@ -259,7 +268,7 @@
           (format t "Invalid move!~%")
           (play-one-ply))
         (progn
-          (setf moves (+ moves 1))
+          (incf moves)
           (setf player (invert-player player))))))
 
 (defun play ()
@@ -303,24 +312,24 @@
                do (progn
                     (setf best-move (length moves))
                     (setf best-value (gethash cell hash-table)))
-               when (or (= cell -1) (zerop (nth cell piece)))
+               when (or (= cell -1) (zerop (elt piece cell)))
                collect cell into moves
                finally (progn
                          (rotatef (nth 0 moves) (nth best-move moves))
                          (return moves)))
             (loop
                for cell in cells
-               when (or (= cell -1) (zerop (nth cell piece)))
+               when (or (= cell -1) (zerop (elt piece cell)))
                collect cell)))))
 
 (defun ab-make-move (move)
   (make-move move player)
-  (setf moves (+ moves 1))
+  (incf moves)
   (setf player (invert-player player)))
 
 (defun ab-unmake-move (move)
   (make-move move 0 't)
-  (setf moves (- moves 1))
+  (decf moves)
   (setf player (invert-player player)))
 
 (defun invert-value (move-analysis)
@@ -387,14 +396,16 @@
      with move
      do (progn
           (print-board)
+          (format t "Eval counter: ~A~%" eval-counter)
+          (setf eval-counter 0)
           (format t "Eval: ~A~%" (static-evaluation (build-patterns template)))
           (setf move (ai-get-next-move depth))
           (format t "Ai says: ~A~%" move)
-          (if (or killer-eur history-eur) (print-hash depth)) 
+          ;; (if (or killer-eur history-eur) (print-hash depth)) 
           (setf move (getf move :move))
           (make-move move player)
           (setf last-move move)
-          (setf moves (+ 1 moves))
+          (incf moves)
           (setf player (invert-player player))))
   (print-board)
   (format t "The winner is: ~A~%" (test-winner)))
@@ -410,7 +421,7 @@
           (format t "Ai says: ~A~%" move)          
           (make-move (getf move :move) player)
           (setf last-move (getf move :move))
-          (setf moves (+ 1 moves))
+          (incf moves)
           (setf player (invert-player player))))
   (print-board))
 
@@ -423,7 +434,7 @@
   (setf killer-eur nil)
   (loop
      for index from 0 to 120
-     do (setf (nth index piece) 0)))
+     do (setf (elt piece index) 0)))
 
 (defun print-hash (&optional (search-height 3))
   (cond
