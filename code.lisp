@@ -1,3 +1,5 @@
+(declaim (optimize (speed 3) (safety 0)))
+
 (defvar playable
   (vector 0 0 0 0 0 0 0 0 0 0 0
           0 0 0 0 0 1 1 1 1 1 0
@@ -56,12 +58,13 @@
 (defvar char-indent " ")
 
 (defvar player 1)  ;; 1 or 2
-(defvar swapped nil) ;; 0 or 1
+(defvar swapped nil) ;; nil or t
 (defvar moves 0)   ;; number of moves
 (defvar last-move nil)
 (defvar history-eur nil)
 (defvar killer-eur nil)
 (defvar eval-counter 0)
+(defvar runtime-goodies t)
 
 ;;; static eval patterns:
 (defvar template '())
@@ -73,6 +76,44 @@
                 (cons '(1 0 0 1) +50)
                 (cons '(0 1 1 0) -20)
                 (cons '(0 1 0 1 0) -25)))
+(defvar patterns-built nil)
+(defvar patterns-built-player 0)
+
+
+(defun adjust-row (row)
+  (cond ((< row 1) 10000) ;; this is ugly (TODO: change)
+        ((= row 1) 4)
+        ((= row 2) 3)
+        ((= row 3) 2)
+        ((= row 4) 1)
+        ((> row 4) 0)))
+
+(defun string-to-index (move)
+  "translates moves to index (ex B2 -> 27)"
+  (if (string= move "X")
+      -1
+      (if (parse-integer (subseq move 1 2) :junk-allowed t)
+          (let* ((row (1+ (- (char-int (char move 0)) (char-int #\A))))
+                 (col (+ (parse-integer (subseq move 1 2)) (adjust-row row)))
+                 (index (+ (* row 11) col)))
+            (if (and (>= index 0)
+                     (< index 121)
+                     (= (elt playable index) 1))
+                index)))))
+
+(defun index-to-string (index)
+  (cond
+    ((null index) "N/A")
+    ((= index -1) "X")
+    ((< index  21) (concatenate 'string "A" (write-to-string (- index 15))))
+    ((< index  32) (concatenate 'string "B" (write-to-string (- index 25))))
+    ((< index  43) (concatenate 'string "C" (write-to-string (- index 35))))
+    ((< index  54) (concatenate 'string "D" (write-to-string (- index 45))))
+    ((< index  65) (concatenate 'string "E" (write-to-string (- index 55))))
+    ((< index  75) (concatenate 'string "F" (write-to-string (- index 66))))
+    ((< index  85) (concatenate 'string "G" (write-to-string (- index 77))))
+    ((< index  95) (concatenate 'string "H" (write-to-string (- index 88))))
+    ((< index 105) (concatenate 'string "I" (write-to-string (- index 99))))))
 
 (defun print-board ()
   (let ((indent 0))
@@ -116,51 +157,13 @@
   (format t "Player: ~A, moves: ~A, swapped ~A, Last move: ~A~%"
           player moves swapped (index-to-string last-move)))
 
-(defun adjust-row (row)
-  (cond ((< row 1) 10000) ;; this is ugly (TODO: change)
-        ((= row 1) 4)
-        ((= row 2) 3)
-        ((= row 3) 2)
-        ((= row 4) 1)
-        ((> row 4) 0)))
-
-(defun string-to-index (move)
-  "translates moves to index (ex B2 -> 27)"
-  (if (string= move "X")
-      -1
-      (if (parse-integer (subseq move 1 2) :junk-allowed t)
-          (let* ((row (1+ (- (char-int (char move 0)) (char-int #\A))))
-                 (col (+ (parse-integer (subseq move 1 2)) (adjust-row row)))
-                 (index (+ (* row 11) col)))
-            (if (and (>= index 0)
-                     (< index 121)
-                     (= (elt playable index) 1))
-                index)))))
-
-(defun index-to-string (index)
-  (cond
-    ((null index) "N/A")
-    ((= index -1) "X")
-    ((< index  21) (concatenate 'string "A" (write-to-string (- index 15))))
-    ((< index  32) (concatenate 'string "B" (write-to-string (- index 25))))
-    ((< index  43) (concatenate 'string "C" (write-to-string (- index 35))))
-    ((< index  54) (concatenate 'string "D" (write-to-string (- index 45))))
-    ((< index  65) (concatenate 'string "E" (write-to-string (- index 55))))
-    ((< index  75) (concatenate 'string "F" (write-to-string (- index 66))))
-    ((< index  85) (concatenate 'string "G" (write-to-string (- index 77))))
-    ((< index  95) (concatenate 'string "H" (write-to-string (- index 88))))
-    ((< index 105) (concatenate 'string "I" (write-to-string (- index 99))))))
-
-
-(defun make-move (index value &optional (bypass-check nil))
-  (if (and (not (null index))
-           (or bypass-check (= index -1) (zerop (elt piece index))))
-      (if (and (= index -1)
-               (or bypass-check (= moves 1)))
-          (swap-players)
-          (progn
-            (setf last-move index)
-            (setf (elt piece index) value)))))
+(defun invert-player (p)
+  (declare (fixnum p))
+  (the fixnum
+       (cond ((= p 1) 2)
+             ((= p 2) 1)
+             ((= p 0) 0)
+             (t 0))))
 
 (defun swap-players ()
   (loop
@@ -170,6 +173,16 @@
   (setf swapped (not swapped))
   (setf last-move -1))
 
+(defun make-move (index value &optional (bypass-check nil))
+  (declare (fixnum index value))
+  (if (or bypass-check (= index -1) (zerop (elt piece index)))
+      (if (and (= index -1)
+               (or bypass-check (= moves 1)))
+          (swap-players)
+          (progn
+            (setf last-move index)
+            (setf (elt piece index) value)))))
+
 (defun board-input (input value)
   (if (= (length input) 2)
       (progn
@@ -177,106 +190,101 @@
         (make-move (string-to-index input) value))))
 
 (defun is-playable (index)
-  (and (> index 0)
-       (< index 121)
-       (= (elt playable index) 1)))
+  (declare (fixnum index))
+  (the boolean
+       (and (> index 0)
+            (< index 121)
+            (= (elt playable index) 1))))
 
 (defun match-pattern-direction (index offset pattern)
-  (if (every #'identity
-             (loop
-                for i from 0 to (- (length pattern) 1)
-                collect (is-playable (+ index (* offset i)))))
-      (equal pattern
-             (loop
-                for i from 0 to (- (length pattern) 1)
-                collect (elt piece (+ (* offset i) index))))))
+  (declare (fixnum index offset)
+           (list pattern))
+  (the boolean
+       (if (every #'identity
+                  (loop
+                     for i from 0 to (- (length pattern) 1)
+                     collect (is-playable (+ index (* offset i)))))
+           (equal pattern
+                  (loop
+                     for i from 0 to (- (length pattern) 1)
+                     collect (elt piece (+ (* offset i) index)))))))
   
 (defun match-pattern (index pattern)
-  (count 't
-         (list
-          (match-pattern-direction index 1  pattern)
-          (match-pattern-direction index 10 pattern)
-          (match-pattern-direction index 11 pattern))))
-
-(defun static-evaluation-pattern (pattern points)
-  (loop
-     for index across cells-linear-order
-     for matches = (match-pattern index pattern)
-     when (not (zerop matches))
-     sum (* matches points)))
-
-(defun build-patterns (template)
-  (loop
-     for cell in template
-     collect (cons
-              (car cell)
-              (if (= player 1) (cdr cell) (- (cdr cell))))
-     collect (cons
-              (mapcar #'invert-player (car cell))
-              (if (= player 1) (- (cdr cell)) (cdr cell)))))
-
-(defun static-evaluation (patterns)
-  (incf eval-counter)
-  (let ((result (test-winner)))
-    (cond
-      ((equal result player) 1e6)
-      ((equal result (invert-player player)) -1e6)
-      (t (loop
-            for cell in patterns
-            sum (static-evaluation-pattern (car cell) (cdr cell)))))))
+  (declare (fixnum index)
+           (list pattern))
+  (the fixnum
+       (count 't
+              (list
+               (match-pattern-direction index 1  pattern)
+               (match-pattern-direction index 10 pattern)
+               (match-pattern-direction index 11 pattern)))))
 
 (defun test-in-a-row (n)
-  (loop
-     for i from 0 to 120
-     for current = (elt piece i)       
-     when (and (not (zerop current))
-               (not (zerop (match-pattern
-                            i
-                            (make-list n :initial-element current)))))
-     return current))
+  (declare (fixnum n))
+  (the boolean
+       (loop
+          for i from 0 to 120
+          for current = (elt piece i)       
+          when (and (not (zerop current))
+                    (not (zerop (match-pattern
+                                 i
+                                 (make-list n :initial-element current)))))
+          return t
+          finally (return nil))))
 
 (defun test-draw ()
-  (loop
-     for i from 0 to 120
-     when (and (= (elt playable i) 1)
-               (= (elt piece i) 0))
-     return nil
-     finally (return t)))
+  (the boolean
+       (loop
+          for i from 0 to 120
+          when (and (= (elt playable i) 1)
+                    (= (elt piece i) 0))
+          return nil
+          finally (return t))))
 
-(defun invert-player (p)
-  (cond ((= p 1) 2)
-        ((= p 2) 1)
-        ((= p 0) 0)))
-
-(defun test-winner ()
+(defun test-winner () 
   (let ((t4 (test-in-a-row 4))
         (t3 (test-in-a-row 3))
         (td (test-draw)))
     (cond
-      ((not (null t4)) t4)
-      ((not (null t3)) (invert-player t3))
+      ((not (null t4)) (invert-player player))
+      ((not (null t3)) player)
       (td 0))))
 
-(defun play-one-ply ()
-  (print-board)
-  (format t "Current eval: ~A~%" (static-evaluation (build-patterns template)))
-  (format t "> ")
-  (finish-output)
-  (let ((input (read-line)))
-    (if (not (board-input input player))
-        (progn
-          (format t "Invalid move!~%")
-          (play-one-ply))
-        (progn
-          (incf moves)
-          (setf player (invert-player player))))))
+(defun static-evaluation-pattern (pattern points)
+  (declare (fixnum points)
+           (list pattern))
+  (the fixnum
+       (loop
+          for index across cells-linear-order
+          for matches = (match-pattern index pattern)
+          when (not (zerop matches))
+          sum (* matches points))))
 
-(defun play ()
-  (loop
-     while (not (test-winner))
-     do (play-one-ply))
-  (print-board)
-  (format t "The winner is: ~A~%" (test-winner)))
+(defun build-patterns (template)
+  (if (not (= player patterns-built-player))      
+      (progn
+        (setf patterns-built
+              (loop
+                 for cell in template
+                 collect (cons
+                          (car cell)
+                          (if (= player 1) (cdr cell) (- (cdr cell))))
+                 collect (cons
+                          (mapcar #'invert-player (car cell))
+                          (if (= player 1) (- (cdr cell)) (cdr cell)))))
+        (setf patterns-built-player player)))
+  patterns-built)
+
+(defun static-evaluation (patterns)
+  (incf eval-counter)
+  (the fixnum
+       (let ((result (test-winner)))
+         (cond
+           ((equal result player) 1000000000)
+           ((equal result (invert-player player)) -1000000000)
+           (t (loop
+                 for cell in patterns
+                 sum (static-evaluation-pattern (car cell) (cdr cell))))))))
 
 (defun fill-hashtable (hashtable)
   (loop
@@ -296,54 +304,56 @@
      do (setf (gethash i killer-eur) (fill-hashtable (make-hash-table)))))
 
 (defun generate-moves (depth)
-  (if (not (test-winner))
-      (let ((cells (if (= moves 1)
-                       cells-spiral-order
-                       (remove -1 cells-spiral-order))))
-        (if (or history-eur killer-eur)
-            (loop
-               for cell in cells
-               with best-move = 0
-               with best-value = 0
-               with hash-table = (cond (history-eur history-eur)
-                                       (killer-eur (gethash depth killer-eur)))
-               when (and (gethash cell hash-table)
-                         (> (gethash cell hash-table) best-value))
-               do (progn
-                    (setf best-move (length moves))
-                    (setf best-value (gethash cell hash-table)))
-               when (or (= cell -1) (zerop (elt piece cell)))
-               collect cell into moves
-               finally (progn
-                         (rotatef (nth 0 moves) (nth best-move moves))
-                         (return moves)))
-            (loop
-               for cell in cells
-               when (or (= cell -1) (zerop (elt piece cell)))
-               collect cell)))))
+  (declare (fixnum depth))
+  (the list
+       (if (not (test-winner))
+           (let ((cells (if (= moves 1)
+                            cells-spiral-order
+                            (remove -1 cells-spiral-order))))
+             (if (or history-eur killer-eur)
+                 (loop
+                    for cell in cells
+                    with best-move = 0
+                    with best-value = 0
+                    with hash-table = (cond (history-eur history-eur)
+                                            (killer-eur (gethash depth killer-eur)))
+                    when (and (gethash cell hash-table)
+                              (> (gethash cell hash-table) best-value))
+                    do (progn
+                         (setf best-move (length moves))
+                         (setf best-value (gethash cell hash-table)))
+                    when (or (= cell -1) (zerop (elt piece cell)))
+                    collect cell into moves
+                    finally (progn
+                              (rotatef (nth 0 moves) (nth best-move moves))
+                              (return moves)))
+                 (loop
+                    for cell in cells
+                    when (or (= cell -1) (zerop (elt piece cell)))
+                    collect cell))))))
 
 (defun ab-make-move (move)
+  (declare (fixnum move))
   (make-move move player)
   (incf moves)
   (setf player (invert-player player)))
 
 (defun ab-unmake-move (move)
+  (declare (fixnum move))
   (make-move move 0 't)
   (decf moves)
   (setf player (invert-player player)))
 
 (defun invert-value (move-analysis)
-  (list :move  (getf move-analysis :move)
-        :value (- (getf move-analysis :value))
-        :depth (getf move-analysis :depth)
-        :moves (getf move-analysis :moves)))
+  (setf (getf move-analysis :value) (- (getf move-analysis :value)))
+  move-analysis)
 
 (defun alpha-beta (search-height depth achievable hope &optional previous-move)
+  (declare (fixnum search-height depth achievable hope))
   (let ((possible-moves (generate-moves depth)))
     (if (or (= depth search-height)
             (equal possible-moves '()))
-        (list :move previous-move
-              :moves (list previous-move)
+        (list :moves (list previous-move)
               :value (static-evaluation (build-patterns template))
               :depth depth)
         (loop
@@ -358,11 +368,12 @@
                                                               move)))
                 (if (not (null previous-move))
                     (setf (getf move-analysis :moves)
-                          (append (getf move-analysis :moves) (list previous-move))))
+                          (append (list previous-move) (getf move-analysis :moves))))
                 (setf temp (getf move-analysis :value))
                 (ab-unmake-move move)
                 ;; --- runtime goodies 
-                (if (= depth 0)
+                (if (and runtime-goodies
+                         (= depth 0))
                     (progn
                       (format t "~ASearching: ~A / ~A" #\return (incf count) (length possible-moves))
                       (finish-output)))
@@ -382,58 +393,24 @@
            finally (return best-move)))))
 
 (defun translate-moves (move-analysis)
+  (setf (getf move-analysis :move) (car (getf move-analysis :moves)))
+  (setf (getf move-analysis :eval-count) eval-counter)
   (setf (getf move-analysis :moves)
         (loop
            for move in (getf move-analysis :moves)
-           collect (index-to-string move)))
-  (setf (getf move-analysis :translated) (index-to-string (getf move-analysis :move)))
+           collect (index-to-string move))) 
   move-analysis)
 
 (defun ai-get-next-move (search-height)
   (cond
     (history-eur (setup-history))
     (killer-eur (setup-killer search-height)))
-  (translate-moves (alpha-beta search-height 0 -1e9 1e9)))
-
-(defun auto-play (depth)
-  (loop
-     while (not (test-winner))
-     with move
-     do (progn
-          (print-board)
-          (format t "Eval counter: ~A~%" eval-counter)
-          (setf eval-counter 0)
-          (format t "Eval: ~A~%" (static-evaluation (build-patterns template)))
-          (setf move (ai-get-next-move depth))
-          (format t "~&Ai says: ~A~%" move)
-          ;; (if (or killer-eur history-eur) (print-hash depth)) 
-          (setf move (getf move :move))
-          (make-move move player)
-          (setf last-move move)
-          (incf moves)
-          (setf player (invert-player player))))
-  (print-board)
-  (format t "The winner is: ~A~%" (test-winner)))
-
-(defun play-against (depth)
-  (loop
-     while (not (test-winner))
-     with move
-     do (progn
-          (play-one-ply)
-          (print-board)
-          (setf move (ai-get-next-move depth))
-          (format t "Ai says: ~A~%" move)          
-          (make-move (getf move :move) player)
-          (setf last-move (getf move :move))
-          (incf moves)
-          (setf player (invert-player player))))
-  (print-board))
+  (translate-moves (alpha-beta search-height 0 -1000000000 1000000000)))
 
 (defun reset-game ()
   (setf moves 0)
   (setf player 1)
-  (setf swapped 0)
+  (setf swapped nil)
   (setf last-move nil)
   (setf history-eur nil)
   (setf killer-eur nil)
@@ -460,3 +437,40 @@
                            (index-to-string cell)
                            (gethash cell hash-table)))
              (format t "---------~%"))))))
+
+(defun play-one-ply-human ()
+  (print-board)
+  (format t "> ")
+  (finish-output)
+  (let ((input (read-line)))
+    (if (not (board-input input player))
+        (progn
+          (format t "Invalid move!~%")
+          (play-one-ply-human))
+        (progn
+          (incf moves)
+          (setf player (invert-player player))))))
+
+(defun play-one-ply-ai (search-height &aux move)
+  (print-board)
+  (setf eval-counter 0)
+  (setf move (ai-get-next-move search-height))
+  (format t "~&Ai says: ~A~%" move) ;; TODO: remove
+  (setf move (getf move :move))
+  (make-move move player)
+  (setf last-move move)
+  (incf moves)
+  (setf player (invert-player player)))
+
+(defun play (search-height &optional is-player1-h is-player2-h) 
+  (loop
+     while (not (test-winner))
+     do (if (or (and (= player 1)
+                     is-player1-h)
+                (and (= player 2)
+                     is-player2-h))
+            (play-one-ply-human)
+            (play-one-ply-ai search-height)))
+  (print-board)
+  (format t "The winner is: ~A~%" (test-winner)))
+
