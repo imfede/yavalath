@@ -348,7 +348,7 @@
               :depth depth)
         (loop
            for move in possible-moves
-           with temp and best-move and move-analysis
+           with temp and best-move and move-analysis and count = 0
            do (progn
                 (ab-make-move move)
                 (setf move-analysis (invert-value (alpha-beta search-height
@@ -361,6 +361,11 @@
                           (append (getf move-analysis :moves) (list previous-move))))
                 (setf temp (getf move-analysis :value))
                 (ab-unmake-move move)
+                ;; --- runtime goodies 
+                (if (= depth 0)
+                    (progn
+                      (format t "~ASearching: ~A / ~A" #\return (incf count) (length possible-moves))
+                      (finish-output)))
                 (if (null best-move) (setf best-move move-analysis))
                 (if (>= temp hope) (progn
                                      (if (or killer-eur history-eur)
@@ -400,7 +405,7 @@
           (setf eval-counter 0)
           (format t "Eval: ~A~%" (static-evaluation (build-patterns template)))
           (setf move (ai-get-next-move depth))
-          (format t "Ai says: ~A~%" move)
+          (format t "~&Ai says: ~A~%" move)
           ;; (if (or killer-eur history-eur) (print-hash depth)) 
           (setf move (getf move :move))
           (make-move move player)
