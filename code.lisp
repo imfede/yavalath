@@ -1,3 +1,4 @@
+;; optmization
 (declaim (optimize (speed 3) (safety 0)))
 
 (defvar playable
@@ -11,8 +12,10 @@
           0 1 1 1 1 1 1 1 0 0 0
           0 1 1 1 1 1 1 0 0 0 0
           0 1 1 1 1 1 0 0 0 0 0
-          0 0 0 0 0 0 0 0 0 0 0))
+          0 0 0 0 0 0 0 0 0 0 0)
+  "Which cells are playable")
 
+;; which 
 (defvar border
   (vector 0 0 0 0 0 1 3 3 3 3 2
           0 0 0 0 5 7 7 7 7 7 2
@@ -24,7 +27,8 @@
           4 7 7 7 7 7 7 7 0 0 0
           4 7 7 7 7 7 7 0 0 0 0
           4 7 7 7 7 7 0 0 0 0 0
-          0 0 0 0 0 0 0 0 0 0 0))
+          0 0 0 0 0 0 0 0 0 0 0)
+  "Used to draw borders")
 
 (defvar piece
   (vector 0 0 0 0 0 0 0 0 0 0 0
@@ -37,7 +41,8 @@
           0 0 0 0 0 0 0 0 0 0 0
           0 0 0 0 0 0 0 0 0 0 0
           0 0 0 0 0 0 0 0 0 0 0
-          0 0 0 0 0 0 0 0 0 0 0))
+          0 0 0 0 0 0 0 0 0 0 0)
+  "Stores the state of the board")
 
 (defvar cells-linear-order
   (vector 16 17 18 19 20 26 27 28 29 30 31 36
@@ -45,7 +50,9 @@
           52 53 56 57 58 59 60 61 62 63 64 67
           68 69 70 71 72 73 74 78 79 80 81 82
           83 84 89 90 91 92 93 94 100 101 102
-          103 104))
+          103 104)
+  "Playable cells in another format (hardcoded 
+   for performance)")
 
 (defvar cells-spiral-order
   '(60 61 50 49 59 70 71 72 62 51 40 39
@@ -53,34 +60,56 @@
     30 29 28 27 37 47 57 68 79 90 91 92
     93 94 84 74 64 53 42 31 20 19 18 17
     16 26 36 46 56 67 78 89 100 101 102
-    103 104 -1)) ;; -1 is for swap
+    103 104 -1)
+  "Playable cells in another order (hardcoded 
+   for performance)")
 
-(defvar char-indent " ")
+(defvar char-indent " "
+  "String used for indentation")
 
-(defvar player 1)  ;; 1 or 2
-(defvar swapped nil) ;; nil or t
-(defvar moves 0)   ;; number of moves
-(defvar last-move nil)
-(defvar history-eur nil)
-(defvar killer-eur nil)
-(defvar eval-counter 0)
-(defvar runtime-goodies t)
+(defvar player 1
+  "Current player. Will change from 1 to 2 and vice versa during the game")
+(defvar swapped nil
+  "Record if the move X was played")
+(defvar moves 0
+  "How many moves have been played")
+(defvar last-move nil
+  "What was the index of the last move")
+(defvar history-eur nil
+  "Will contain the hashtable for the history euristic. Also the trigger: if set to true will enable this euristic")
+(defvar killer-eur nil
+  "Will contain the hashtable for the killer euristic. Also the trigger: if set to true will enable this euristic")
+(defvar eval-counter 0
+  "Number of static evaluations")
+(defvar runtime-goodies t
+  "Do I want an indication of the progress?")
 
-;;; static eval patterns:
-(defvar template '())
-(setf template (list
-                (cons '(1 1 0 1) +1000)
-                (cons '(1 0 1 1) +1000)
-                (cons '(1 0 1 1 0 1) +1000)
-                (cons '(1 1 0 1 0 1 1) +1000)
-                (cons '(1 0 0 1) +50)
-                (cons '(0 1 1 0) -20)
-                (cons '(0 1 0 1 0) -25)))
-(defvar patterns-built nil)
-(defvar patterns-built-player 0)
+(defvar template (list
+                  (cons '(0 1 1 0 1) +1000)
+                  (cons '(1 0 1 1 0) +1000)
+                  (cons '(0 1 0 0 1) +100)
+                  (cons '(1 0 0 1 0) +100)
+                  (cons '(0 1 1 0) -50)
+                  (cons '(0 1 0 1 0) -30))
+  "Patterns and scores for the evaluation function, they will be built for each player")
 
+(defvar patterns-built nil
+  "Will keep a version of the built patterns to avoid aving to build them every time")
+(defvar patterns-built-player 0
+  "Specify for which player the built patterns are (if (not (= player patterns-built-player)) (rebuild-patterns))")
+
+
+(defvar eval-counter-total   0
+  "Total count of evaluations in a game with no euristics")
+(defvar eval-counter-total-k 0
+  "Total count of evaluations in a game with killer euristics")
+(defvar eval-counter-total-h 0
+  "Total count of evaluations in a game with history euristics")
+(defvar eval-counter-disagreement 0
+  "Count of how many thime different/no euristics yielded different results")
 
 (defun adjust-row (row)
+  "Helper function for translating between string and indexes"
   (cond ((< row 1) 10000) ;; this is ugly (TODO: change)
         ((= row 1) 4)
         ((= row 2) 3)
@@ -89,7 +118,7 @@
         ((> row 4) 0)))
 
 (defun string-to-index (move)
-  "translates moves to index (ex B2 -> 27)"
+  "Translates moves to index (ex B2 -> 27)"
   (if (string= move "X")
       -1
       (if (parse-integer (subseq move 1 2) :junk-allowed t)
@@ -102,6 +131,7 @@
                 index)))))
 
 (defun index-to-string (index)
+  "Translates an index to a move (ex 27 -> B2)"
   (cond
     ((null index) "N/A")
     ((= index -1) "X")
@@ -116,6 +146,7 @@
     ((< index 105) (concatenate 'string "I" (write-to-string (- index 99))))))
 
 (defun print-board ()
+  "Print a representation of the board"
   (let ((indent 0))
     (loop
        for i from 0 to 10
@@ -158,14 +189,15 @@
           player moves swapped (index-to-string last-move)))
 
 (defun invert-player (p)
+  "Helper function which evaluates to the other player"
   (declare (fixnum p))
   (the fixnum
        (cond ((= p 1) 2)
              ((= p 2) 1)
-             ((= p 0) 0)
              (t 0))))
 
 (defun swap-players ()
+  "This function will change ownership of every piece on the board"
   (loop
      for i from 0 to 120
      do (if (not (zerop (elt piece i)))
@@ -174,6 +206,8 @@
   (setf last-move -1))
 
 (defun make-move (index value &optional (bypass-check nil))
+  "This function will set index cell to value, if it a valid move. If index = -1 it will perform the X move, if it is 
+   valid. If bypass-check evals to t it will perform the move regardless of validity"
   (declare (fixnum index value))
   (if (or bypass-check (= index -1) (zerop (elt piece index)))
       (if (and (= index -1)
@@ -183,13 +217,8 @@
             (setf last-move index)
             (setf (elt piece index) value)))))
 
-(defun board-input (input value)
-  (if (= (length input) 2)
-      (progn
-        (setf last-move (string-to-index input))
-        (make-move (string-to-index input) value))))
-
 (defun is-playable (index)
+  "Evals to t iff index is a valid move"
   (declare (fixnum index))
   (the boolean
        (and (> index 0)
@@ -197,6 +226,8 @@
             (= (elt playable index) 1))))
 
 (defun match-pattern-direction (index offset pattern)
+  "Evals to t iff the list pattern is equal to the sublist created from the array piece, from the element index 
+   advancing using offset as a step."
   (declare (fixnum index offset)
            (list pattern))
   (the boolean
@@ -210,6 +241,7 @@
                      collect (elt piece (+ (* offset i) index)))))))
   
 (defun match-pattern (index pattern)
+  "Evals to t if cell index is the starting point of pattern on the board"
   (declare (fixnum index)
            (list pattern))
   (the fixnum
@@ -220,6 +252,7 @@
                (match-pattern-direction index 11 pattern)))))
 
 (defun test-in-a-row (n)
+  "Evals to t iff n element != 0 exists in a row on the board"
   (declare (fixnum n))
   (the boolean
        (loop
@@ -233,6 +266,8 @@
           finally (return nil))))
 
 (defun test-draw ()
+  "Evals to t iff every cell is not empty (if used after (test-in-a-row 3) and (test-in-a-row 4) will reveal if there
+   is a draw"
   (the boolean
        (loop
           for i from 0 to 120
@@ -241,7 +276,8 @@
           return nil
           finally (return t))))
 
-(defun test-winner () 
+(defun test-winner ()
+  "Evals to the winning player, to 0 if there is a draw or to nil if the game is still on"
   (let ((t4 (test-in-a-row 4))
         (t3 (test-in-a-row 3))
         (td (test-draw)))
@@ -251,16 +287,19 @@
       (td 0))))
 
 (defun static-evaluation-pattern (pattern points)
+  "Evals to the number of times pattern is present in the board times points"
   (declare (fixnum points)
            (list pattern))
   (the fixnum
-       (loop
-          for index across cells-linear-order
-          for matches = (match-pattern index pattern)
-          when (not (zerop matches))
-          sum (* matches points))))
+       (* points
+          (loop
+             for index across cells-linear-order
+             for matches = (match-pattern index pattern)
+             when (not (zerop matches))
+             sum matches))))
 
 (defun build-patterns (template)
+  "Build the template according to the current player if it is not valid. Evals to the correct set of patterns"
   (if (not (= player patterns-built-player))      
       (progn
         (setf patterns-built
@@ -276,6 +315,7 @@
   patterns-built)
 
 (defun static-evaluation (patterns)
+  "Evals to a score evaluating the situation on the board according to the current player"
   (incf eval-counter)
   (the fixnum
        (let ((result (test-winner)))
@@ -287,16 +327,19 @@
                  sum (static-evaluation-pattern (car cell) (cdr cell))))))))
 
 (defun fill-hashtable (hashtable)
+  "Helper function which initialize hashtable"
   (loop
      for move in cells-spiral-order
      do (setf (gethash move hashtable) 0)
      finally (return hashtable)))
 
 (defun setup-history ()
+  "Helper function to prepare a hashtable for the history euristic"
   (setf killer-eur nil)
   (setf history-eur (fill-hashtable (make-hash-table))))
 
 (defun setup-killer (depth)
+  "Helper function to prepare a hashtable for the killer euristic"
   (setf history-eur nil)
   (setf killer-eur (make-hash-table))
   (loop
@@ -304,6 +347,7 @@
      do (setf (gethash i killer-eur) (fill-hashtable (make-hash-table)))))
 
 (defun generate-moves (depth)
+  "Evals to a list of possible moves, using one of the two euristics if specified"
   (declare (fixnum depth))
   (the list
        (if (not (test-winner))
@@ -333,51 +377,45 @@
                     collect cell))))))
 
 (defun ab-make-move (move)
+  "Function which should be called from the alpha-beta algorithm to make a move"
   (declare (fixnum move))
   (make-move move player)
   (incf moves)
   (setf player (invert-player player)))
 
 (defun ab-unmake-move (move)
+  "Function which should be called from the alpha-beta algorithm to un-make a move"
   (declare (fixnum move))
   (make-move move 0 't)
   (decf moves)
   (setf player (invert-player player)))
 
-(defun invert-value (move-analysis)
-  (setf (getf move-analysis :value) (- (getf move-analysis :value)))
-  move-analysis)
-
 (defun alpha-beta (search-height depth achievable hope &optional previous-move)
+  "The actual search algorithm, evals to a cons cell (move . value)"
   (declare (fixnum search-height depth achievable hope))
   (let ((possible-moves (generate-moves depth)))
     (if (or (= depth search-height)
             (equal possible-moves '()))
-        (list :moves (list previous-move)
-              :value (static-evaluation (build-patterns template))
-              :depth depth)
+        (cons previous-move (static-evaluation (build-patterns template)))
         (loop
            for move in possible-moves
            with temp and best-move and move-analysis and count = 0
            do (progn
                 (ab-make-move move)
-                (setf move-analysis (invert-value (alpha-beta search-height
-                                                              (+ depth 1)
-                                                              (- hope)
-                                                              (- achievable)
-                                                              move)))
-                (if (not (null previous-move))
-                    (setf (getf move-analysis :moves)
-                          (append (list previous-move) (getf move-analysis :moves))))
-                (setf temp (getf move-analysis :value))
+                (setf move-analysis (alpha-beta search-height
+                                                (+ depth 1)
+                                                (- hope)
+                                                (- achievable)
+                                                move))
+                (setf temp (- (cdr move-analysis)))
                 (ab-unmake-move move)
                 ;; --- runtime goodies 
                 (if (and runtime-goodies
                          (= depth 0))
                     (progn
-                      (format t "~ASearching: ~A / ~A" #\return (incf count) (length possible-moves))
+                      (format t "~ASearching: ~A / ~A " #\return (incf count) (length possible-moves))
                       (finish-output)))
-                (if (null best-move) (setf best-move move-analysis))
+                (if (null best-move) (setf best-move (cons move temp)))
                 (if (>= temp hope) (progn
                                      (if (or killer-eur history-eur)
                                          (let ((hash-table (if history-eur
@@ -385,29 +423,49 @@
                                                                (gethash depth killer-eur))))
                                            (setf (gethash move hash-table)
                                                  (+ (gethash move hash-table) 1))))
-                                     (return move-analysis)))
+                                     (return (cons move temp))))
                 (if (> temp achievable)
                     (progn
                       (setf achievable temp)
-                      (setf best-move move-analysis))))
+                      (setf best-move (cons move temp)))))
            finally (return best-move)))))
 
-(defun translate-moves (move-analysis)
-  (setf (getf move-analysis :move) (car (getf move-analysis :moves)))
-  (setf (getf move-analysis :eval-count) eval-counter)
-  (setf (getf move-analysis :moves)
-        (loop
-           for move in (getf move-analysis :moves)
-           collect (index-to-string move))) 
-  move-analysis)
-
 (defun ai-get-next-move (search-height)
+  "Evals to the best possible moves looking ahead search-height moves, if specified will use euristic"
+  (setf eval-counter 0)
   (cond
     (history-eur (setup-history))
     (killer-eur (setup-killer search-height)))
-  (translate-moves (alpha-beta search-height 0 -1000000000 1000000000)))
+  (car (alpha-beta search-height 0 -1000000000 1000000000)))
+
+(defun ai-get-next-move-all-eur (search-height &aux move-k count-k move-h count-h move count)
+  "Evals to a list gathering statistics about moves chosen by euristics and static evaluations count"
+  (setf history-eur t)
+  (setf move-h (ai-get-next-move search-height))
+  (format t "~&")
+  (setf count-h eval-counter)
+  (setf history-eur nil)
+  (setf killer-eur t)
+  (setf move-k (ai-get-next-move search-height))
+  (format t "~&")
+  (setf count-k eval-counter)
+  (setf killer-eur nil)
+  (setf move (ai-get-next-move search-height))
+  (format t "~&")
+  (setf count eval-counter)
+  (list :move-h move-h
+        :move-k move-k
+        :move move
+        :count-h count-h
+        :count-k count-k
+        :count count))
 
 (defun reset-game ()
+  "Will reset the internal state to play another game"
+  (setf eval-counter-total 0)
+  (setf eval-counter-total-h 0)
+  (setf eval-counter-total-k 0)
+  (setf eval-counter-disagreement 0)
   (setf moves 0)
   (setf player 1)
   (setf swapped nil)
@@ -418,51 +476,51 @@
      for index from 0 to 120
      do (setf (elt piece index) 0)))
 
-(defun print-hash (&optional (search-height 3))
-  (cond
-    (history-eur
-     (loop
-        for index being the hash-keys in history-eur
-        when (> (gethash index history-eur) 0)
-        do (format t "~A: ~A~%" (index-to-string index) (gethash index history-eur))))
-    (killer-eur
-     (loop 
-        for depth from 0 to search-height
-        do (progn
-             (loop
-                for cell in cells-spiral-order
-                with hash-table = (gethash depth killer-eur)
-                when (> (gethash cell hash-table) 0)
-                do (format t "~A: ~A~%"
-                           (index-to-string cell)
-                           (gethash cell hash-table)))
-             (format t "---------~%"))))))
-
 (defun play-one-ply-human ()
+  "Contains the logic to make a human player play a ply"
   (print-board)
   (format t "> ")
   (finish-output)
   (let ((input (read-line)))
-    (if (not (board-input input player))
+    (if (null (string-to-index input))
         (progn
           (format t "Invalid move!~%")
           (play-one-ply-human))
         (progn
+          (setf last-move (string-to-index input))
+          (make-move (string-to-index input) player)
           (incf moves)
           (setf player (invert-player player))))))
 
 (defun play-one-ply-ai (search-height &aux move)
+  "Contains the logic to use the alpha-beta algorithm (with euristics if specified) to play one ply"
   (print-board)
-  (setf eval-counter 0)
   (setf move (ai-get-next-move search-height))
-  (format t "~&Ai says: ~A~%" move) ;; TODO: remove
-  (setf move (getf move :move))
   (make-move move player)
   (setf last-move move)
   (incf moves)
   (setf player (invert-player player)))
 
-(defun play (search-height &optional is-player1-h is-player2-h) 
+(defun play-one-ply-ai-all-eur (search-height &aux result move)
+  "Will use the alpha-beta algorithm to play a ply with all the euristics and gather data about their performance"
+  (print-board)
+  (setf result (ai-get-next-move-all-eur search-height))
+  (incf eval-counter-total   (getf result :count))
+  (incf eval-counter-total-h (getf result :count-h))
+  (incf eval-counter-total-k (getf result :count-k))
+  (setf move (getf result :move))
+  (if (not (= (getf result :move)
+              (getf result :move-h)
+              (getf result :move-k)))
+      (incf eval-counter-disagreement))
+  (make-move move player)
+  (setf last-move move)
+  (incf moves)
+  (setf player (invert-player player)))
+
+(defun play (search-height &optional is-player1-h is-player2-h)
+  "Contains the logic to play a game, if the optional paramters are non-nil the corrisponding player is assumed to
+   be human. If the optional paramters are omitted the AI will play against itself"
   (loop
      while (not (test-winner))
      do (if (or (and (= player 1)
@@ -474,3 +532,18 @@
   (print-board)
   (format t "The winner is: ~A~%" (test-winner)))
 
+(defun play-all-eur (search-height)
+  "Will perform an entire play human vs AI gathering data about euristics performance"
+  (loop
+     while (not (test-winner))
+     do (if (= (mod moves 2) 0)
+            (play-one-ply-human)
+            (play-one-ply-ai-all-eur search-height)))
+  (print-board)
+  (format t "The winner is: ~A~%" (test-winner))
+  (list :count   eval-counter-total
+        :count-h eval-counter-total-h
+        :count-k eval-counter-total-k
+        :disag   eval-counter-disagreement
+        :moves   moves))
+  
